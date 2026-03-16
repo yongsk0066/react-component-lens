@@ -1474,6 +1474,282 @@ test('codelens scope tracks source file paths for imports', async () => {
   }
 })
 
+test('UPPER_SNAKE_CASE constants are not detected as components', async () => {
+  const project = createProject({
+    'Page.tsx': [
+      "const CLICK_CODE = 'click';",
+      'const MAX_COUNT = 100;',
+      "const DEFAULT_VALUE = 'hello';",
+      '',
+      'export function Page() {',
+      '  return <div>{CLICK_CODE}</div>;',
+      '}',
+    ].join('\n'),
+  })
+
+  try {
+    const analyzer = createAnalyzer(project.host)
+    const filePath = project.filePath('Page.tsx')
+    const source = project.readFile('Page.tsx')
+    const scope: ScopeConfig = {
+      declaration: true,
+      element: false,
+      export: false,
+      import: false,
+      type: false,
+    }
+    const usages = await analyzer.analyzeDocument(
+      filePath,
+      source,
+      project.signature('Page.tsx'),
+      scope,
+    )
+
+    expect(usages.length).toBe(1)
+    expect(usages[0]?.tagName).toBe('Page')
+  } finally {
+    project[Symbol.dispose]()
+  }
+})
+
+test('PascalCase functions without JSX or hooks are not detected as components', async () => {
+  const project = createProject({
+    'utils.ts': [
+      'function FormatDate(date: Date) {',
+      '  return date.toISOString();',
+      '}',
+      '',
+      'const ParseValue = (input: string) => {',
+      '  return parseInt(input, 10);',
+      '};',
+    ].join('\n'),
+  })
+
+  try {
+    const analyzer = createAnalyzer(project.host)
+    const filePath = project.filePath('utils.ts')
+    const source = project.readFile('utils.ts')
+    const scope: ScopeConfig = {
+      declaration: true,
+      element: false,
+      export: false,
+      import: false,
+      type: false,
+    }
+    const usages = await analyzer.analyzeDocument(
+      filePath,
+      source,
+      project.signature('utils.ts'),
+      scope,
+    )
+
+    expect(usages.length).toBe(0)
+  } finally {
+    project[Symbol.dispose]()
+  }
+})
+
+test('components with JSX in body pass detection', async () => {
+  const project = createProject({
+    'Card.tsx': [
+      'export function Card() {',
+      '  return <div>hello</div>;',
+      '}',
+    ].join('\n'),
+  })
+
+  try {
+    const analyzer = createAnalyzer(project.host)
+    const filePath = project.filePath('Card.tsx')
+    const source = project.readFile('Card.tsx')
+    const scope: ScopeConfig = {
+      declaration: true,
+      element: false,
+      export: false,
+      import: false,
+      type: false,
+    }
+    const usages = await analyzer.analyzeDocument(
+      filePath,
+      source,
+      project.signature('Card.tsx'),
+      scope,
+    )
+
+    expect(usages.length).toBe(1)
+    expect(usages[0]?.tagName).toBe('Card')
+  } finally {
+    project[Symbol.dispose]()
+  }
+})
+
+test('components with only hook calls and no JSX pass detection', async () => {
+  const project = createProject({
+    'DataProvider.tsx': [
+      'function DataProvider(props: { children: React.ReactNode }) {',
+      '  const data = useQuery("key");',
+      '  const [state, setState] = useState(0);',
+      '  return props.children;',
+      '}',
+    ].join('\n'),
+  })
+
+  try {
+    const analyzer = createAnalyzer(project.host)
+    const filePath = project.filePath('DataProvider.tsx')
+    const source = project.readFile('DataProvider.tsx')
+    const scope: ScopeConfig = {
+      declaration: true,
+      element: false,
+      export: false,
+      import: false,
+      type: false,
+    }
+    const usages = await analyzer.analyzeDocument(
+      filePath,
+      source,
+      project.signature('DataProvider.tsx'),
+      scope,
+    )
+
+    expect(usages.length).toBe(1)
+    expect(usages[0]?.tagName).toBe('DataProvider')
+  } finally {
+    project[Symbol.dispose]()
+  }
+})
+
+test('empty functions are not detected as components', async () => {
+  const project = createProject({
+    'Empty.tsx': [
+      'function EmptyComponent() {}',
+      '',
+      'const AlsoEmpty = () => {};',
+    ].join('\n'),
+  })
+
+  try {
+    const analyzer = createAnalyzer(project.host)
+    const filePath = project.filePath('Empty.tsx')
+    const source = project.readFile('Empty.tsx')
+    const scope: ScopeConfig = {
+      declaration: true,
+      element: false,
+      export: false,
+      import: false,
+      type: false,
+    }
+    const usages = await analyzer.analyzeDocument(
+      filePath,
+      source,
+      project.signature('Empty.tsx'),
+      scope,
+    )
+
+    expect(usages.length).toBe(0)
+  } finally {
+    project[Symbol.dispose]()
+  }
+})
+
+test('JSX inside nested functions does not count for parent component detection', async () => {
+  const project = createProject({
+    'Factory.tsx': [
+      'function CreateWidget() {',
+      '  return function Inner() {',
+      '    return <div />;',
+      '  };',
+      '}',
+    ].join('\n'),
+  })
+
+  try {
+    const analyzer = createAnalyzer(project.host)
+    const filePath = project.filePath('Factory.tsx')
+    const source = project.readFile('Factory.tsx')
+    const scope: ScopeConfig = {
+      declaration: true,
+      element: false,
+      export: false,
+      import: false,
+      type: false,
+    }
+    const usages = await analyzer.analyzeDocument(
+      filePath,
+      source,
+      project.signature('Factory.tsx'),
+      scope,
+    )
+
+    expect(usages.length).toBe(0)
+  } finally {
+    project[Symbol.dispose]()
+  }
+})
+
+test('functions with too many parameters are not detected as components', async () => {
+  const project = createProject({
+    'Helper.tsx': [
+      'function Helper(a: string, b: number, c: boolean) {',
+      '  return <div />;',
+      '}',
+    ].join('\n'),
+  })
+
+  try {
+    const analyzer = createAnalyzer(project.host)
+    const filePath = project.filePath('Helper.tsx')
+    const source = project.readFile('Helper.tsx')
+    const scope: ScopeConfig = {
+      declaration: true,
+      element: false,
+      export: false,
+      import: false,
+      type: false,
+    }
+    const usages = await analyzer.analyzeDocument(
+      filePath,
+      source,
+      project.signature('Helper.tsx'),
+      scope,
+    )
+
+    expect(usages.length).toBe(0)
+  } finally {
+    project[Symbol.dispose]()
+  }
+})
+
+test('arrow function with JSX expression body passes detection', async () => {
+  const project = createProject({
+    'Badge.tsx': ['const Badge = () => <span>badge</span>;'].join('\n'),
+  })
+
+  try {
+    const analyzer = createAnalyzer(project.host)
+    const filePath = project.filePath('Badge.tsx')
+    const source = project.readFile('Badge.tsx')
+    const scope: ScopeConfig = {
+      declaration: true,
+      element: false,
+      export: false,
+      import: false,
+      type: false,
+    }
+    const usages = await analyzer.analyzeDocument(
+      filePath,
+      source,
+      project.signature('Badge.tsx'),
+      scope,
+    )
+
+    expect(usages.length).toBe(1)
+    expect(usages[0]?.tagName).toBe('Badge')
+  } finally {
+    project[Symbol.dispose]()
+  }
+})
+
 function createAnalyzer(host: SourceHost): ComponentLensAnalyzer {
   const resolver = new ImportResolver(host)
   return new ComponentLensAnalyzer(host, resolver)

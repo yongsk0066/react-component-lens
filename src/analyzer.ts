@@ -458,7 +458,12 @@ function parseFileAnalysis(filePath: string, sourceText: string): FileAnalysis {
       }
       case SK_FunctionDecl: {
         const funcDecl = statement as ts.FunctionDeclaration
-        if (funcDecl.name && isComponentIdentifier(funcDecl.name.text)) {
+        if (
+          funcDecl.name &&
+          isComponentIdentifier(funcDecl.name.text) &&
+          isValidComponentParams(funcDecl.parameters) &&
+          hasComponentLikeBody(funcDecl.body)
+        ) {
           registerComponent(funcDecl.name.text, funcDecl.name, funcDecl)
           if (hasAsyncModifier(funcDecl.modifiers)) {
             asyncComponents.add(funcDecl.name.text)
@@ -541,7 +546,11 @@ function parseFileAnalysis(filePath: string, sourceText: string): FileAnalysis {
           }
 
           const fn = getComponentFunction(declaration.initializer)
-          if (fn) {
+          if (
+            fn &&
+            isValidComponentParams(fn.parameters) &&
+            hasComponentLikeBody(fn.body)
+          ) {
             registerComponent(declName, declaration.name, declaration)
             if (hasAsyncModifier(fn.modifiers)) {
               asyncComponents.add(declName)
@@ -600,10 +609,110 @@ const SK_ExportAssignment = ts.SyntaxKind.ExportAssignment
 const SK_VariableStmt = ts.SyntaxKind.VariableStatement
 const SK_NamespaceImport = ts.SyntaxKind.NamespaceImport
 const SK_NamedExports = ts.SyntaxKind.NamedExports
+const SK_JsxFragment = ts.SyntaxKind.JsxFragment
 
 function isComponentIdentifier(name: string): boolean {
   const code = name.charCodeAt(0)
-  return code >= 65 && code <= 90
+  if (code < 65 || code > 90) return false
+  if (isUpperSnakeCase(name)) return false
+  return true
+}
+
+function isUpperSnakeCase(name: string): boolean {
+  let hasUnderscore = false
+  for (let i = 0; i < name.length; i++) {
+    const ch = name.charCodeAt(i)
+    if (ch === 95) {
+      hasUnderscore = true
+      continue
+    }
+    if ((ch >= 65 && ch <= 90) || (ch >= 48 && ch <= 57)) {
+      continue
+    }
+    return false
+  }
+  return hasUnderscore
+}
+
+function isValidComponentParams(
+  params: ts.NodeArray<ts.ParameterDeclaration>,
+): boolean {
+  return params.length <= 2
+}
+
+function hasComponentLikeBody(body: ts.ConciseBody | undefined): boolean {
+  if (!body) return false
+
+  if (body.kind !== SK_Block) {
+    return containsJsxOrHook(body, false)
+  }
+
+  const block = body as ts.Block
+  const statements = block.statements
+
+  if (statements.length === 0) return false
+
+  return containsJsxOrHook(block, false)
+}
+
+function containsJsxOrHook(
+  node: ts.Node,
+  insideNestedFunction: boolean,
+): boolean {
+  const nodeKind = node.kind
+
+  if (
+    insideNestedFunction &&
+    (nodeKind === SK_ArrowFunction ||
+      nodeKind === SK_FunctionExpr ||
+      nodeKind === SK_FunctionDecl)
+  ) {
+    return false
+  }
+
+  if (
+    nodeKind === SK_JsxOpening ||
+    nodeKind === SK_JsxSelfClosing ||
+    nodeKind === SK_JsxFragment
+  ) {
+    return true
+  }
+
+  if (nodeKind === SK_CallExpression) {
+    const callExpr = node as ts.CallExpression
+    if (isHookCall(callExpr.expression)) {
+      return true
+    }
+  }
+
+  let found = false
+  ts.forEachChild(node, (child) => {
+    if (!found && containsJsxOrHook(child, true)) {
+      found = true
+    }
+  })
+  return found
+}
+
+function isHookCall(expr: ts.Expression): boolean {
+  if (expr.kind === SK_Identifier) {
+    return isHookName((expr as ts.Identifier).text)
+  }
+  if (expr.kind === SK_PropertyAccess) {
+    return isHookName((expr as ts.PropertyAccessExpression).name.text)
+  }
+  return false
+}
+
+function isHookName(name: string): boolean {
+  return (
+    name.length >= 4 &&
+    name.charCodeAt(0) === 117 &&
+    name.charCodeAt(1) === 115 &&
+    name.charCodeAt(2) === 101 &&
+    name.charCodeAt(3) >= 65 &&
+    name.charCodeAt(3) <= 90
+  )
 }
 
 function getComponentFunction(
