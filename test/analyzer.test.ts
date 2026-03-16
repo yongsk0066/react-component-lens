@@ -1527,6 +1527,109 @@ test('highlights default import when source file exports a component', async () 
   }
 })
 
+test('filters PascalCase functions without JSX or hooks', async () => {
+  const project = createProject({
+    'Page.tsx': [
+      "import FormatDate from './FormatDate';",
+      '',
+      'export default function Page() {',
+      '  return <div />;',
+      '}',
+    ].join('\n'),
+    'FormatDate.tsx': [
+      'export default function FormatDate(input: string) {',
+      '  return input.toUpperCase();',
+      '}',
+    ].join('\n'),
+  })
+
+  try {
+    const analyzer = createAnalyzer(project.host)
+    const filePath = project.filePath('Page.tsx')
+    const source = project.readFile('Page.tsx')
+    const usages = await analyzer.analyzeDocument(
+      filePath,
+      source,
+      project.signature('Page.tsx'),
+    )
+
+    const tagNames = usages.map((u) => u.tagName)
+    expect(tagNames).not.toContain('FormatDate')
+  } finally {
+    project[Symbol.dispose]()
+  }
+})
+
+test('detects components with only hook calls and no JSX', async () => {
+  const project = createProject({
+    'Hook.tsx': [
+      "'use client';",
+      '',
+      'export default function DataProvider() {',
+      '  const [data] = useState(null);',
+      '  return null;',
+      '}',
+    ].join('\n'),
+  })
+
+  try {
+    const analyzer = createAnalyzer(project.host)
+    const filePath = project.filePath('Hook.tsx')
+    const source = project.readFile('Hook.tsx')
+    const scope: ScopeConfig = {
+      declaration: true,
+      element: false,
+      export: false,
+      import: false,
+      type: false,
+    }
+    const usages = await analyzer.analyzeDocument(
+      filePath,
+      source,
+      project.signature('Hook.tsx'),
+      scope,
+    )
+
+    expect(usages.length).toBe(1)
+    expect(usages[0]?.tagName).toBe('DataProvider')
+  } finally {
+    project[Symbol.dispose]()
+  }
+})
+
+test('filters functions with more than 2 parameters', async () => {
+  const project = createProject({
+    'Util.tsx': [
+      'export function Renderer(a: string, b: number, c: boolean) {',
+      '  return <div />;',
+      '}',
+    ].join('\n'),
+  })
+
+  try {
+    const analyzer = createAnalyzer(project.host)
+    const filePath = project.filePath('Util.tsx')
+    const source = project.readFile('Util.tsx')
+    const scope: ScopeConfig = {
+      declaration: true,
+      element: false,
+      export: false,
+      import: false,
+      type: false,
+    }
+    const usages = await analyzer.analyzeDocument(
+      filePath,
+      source,
+      project.signature('Util.tsx'),
+      scope,
+    )
+
+    expect(usages.length).toBe(0)
+  } finally {
+    project[Symbol.dispose]()
+  }
+})
+
 test('codelens scope returns import and declaration usages together', async () => {
   const project = createProject({
     'Page.tsx': [
